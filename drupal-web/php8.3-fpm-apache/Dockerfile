@@ -1,4 +1,4 @@
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 # prevent Debian's PHP packages from being installed
 # https://github.com/docker-library/php/pull/542
@@ -32,7 +32,8 @@ RUN set -eux; \
 		xz-utils \
 		exim4;
 
-RUN groupadd -r -g 1001 docker && useradd --no-log-init -r -u 1000 -g docker docker
+# -m is required: gpg needs a writable home for its keyring (~/.gnupg)
+RUN groupadd -r -g 1001 docker && useradd --no-log-init -r -m -u 1000 -g docker docker
 
 ENV PHP_INI_DIR /usr/local/etc/php
 RUN set -eux; \
@@ -81,8 +82,12 @@ RUN set -eux; \
 	ln -sfT /dev/stdout "$APACHE_LOG_DIR/other_vhosts_access.log"; \
 	chown -R --no-dereference "$APACHE_RUN_USER:$APACHE_RUN_GROUP" "$APACHE_LOG_DIR"
 
-# Apache + PHP requires preforking Apache for best results
-RUN a2enmod mpm_event && a2dismod mpm_prefork
+# Use preforking Apache. mpm_event/worker create a pthread per worker, and
+# hardened container runtimes (seccomp) deny thread creation with EPERM --
+# httpd then exits at startup and the container crash-loops. prefork is
+# process-based and needs no threads. Same fix as php8.4-fpm-apache (421c4f8).
+RUN a2dismod mpm_event || true; \
+	a2enmod mpm_prefork
 RUN a2enmod proxy proxy_fcgi proxy_http
 
 # PHP files should be handled by PHP, and should be preferred over any other file type
@@ -258,10 +263,10 @@ RUN set -eux; \
 	apt-mark auto '.*' > /dev/null; \
 	[ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; \
 	find /usr/local -type f -executable -exec ldd '{}' ';' \
-		| awk '/=>/ { print $(NF-1) }' \
+		| awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); printf "*%s\n", so }' \
 		| sort -u \
-		| xargs -r dpkg-query --search \
-		| cut -d: -f1 \
+		| xargs -rt dpkg-query --search \
+		| awk 'sub(":$", "", $1) { print $1 }' \
 		| sort -u \
 		| xargs -r apt-mark manual \
 	; \
@@ -357,6 +362,7 @@ RUN a2enmod rewrite \
       libbz2-dev \
       libmagickwand-dev \
       libwebp-dev \
+      libicu-dev \
 	&& docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp\
   && docker-php-ext-install -j "$(nproc)" gd \
   && docker-php-ext-configure zip \
@@ -402,10 +408,26 @@ RUN docker-php-ext-enable imagick
 # Install apcu
 RUN printf "\n" | pecl install apcu
 RUN docker-php-ext-enable apcu
+
+# Install gnupg
+# libgpgme-dev is required to build it, and it pulls in the GnuPG CLI suite
+# (libgpgme11 Depends: gnupg).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgpgme-dev \
+    && printf "\n" | pecl install gnupg \
+    && docker-php-ext-enable gnupg \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 RUN pecl clear-cache
 
+# php-fpm serves requests as www-data, and gpg needs a writable keyring
+# directory; without it gnupg::encrypt() silently returns an empty string.
+RUN mkdir -p /var/www/.gnupg && chown www-data:www-data /var/www/.gnupg && chmod 700 /var/www/.gnupg
+
 # Install new relic agent
-RUN curl -o newrelic.tar.gz https://download.newrelic.com/php_agent/release/newrelic-php5-12.2.0.27-linux.tar.gz \
+# Pinned releases are only served from the per-version archive path; the
+# /release/ directory now contains just the newest agent, so it 404s.
+RUN curl -o newrelic.tar.gz https://download.newrelic.com/php_agent/archive/12.2.0.27/newrelic-php5-12.2.0.27-linux.tar.gz \
   && gzip -dc newrelic.tar.gz | tar xf - \
   && cd newrelic-php5-12.2.0.27-linux \
   && NR_INSTALL_USE_CP_NOT_LN=1 NR_INSTALL_SILENT=1 ./newrelic-install install \
