@@ -123,9 +123,9 @@ ENV PHP_LDFLAGS="-Wl,-O1 -pie"
 
 ENV GPG_KEYS 1198C0117593497A5EC5C199286AF1F9897469DC AFD8691FDAEDF03BDF6E460563F15A9B715376CA C28D937575603EB4ABB725861C0779DC5C0A9DE4
 
-ENV PHP_VERSION 8.3.15
-ENV PHP_URL="https://www.php.net/distributions/php-8.3.15.tar.xz" PHP_ASC_URL="https://www.php.net/distributions/php-8.3.15.tar.xz.asc"
-ENV PHP_SHA256="3df5d45637283f759eef8fc3ce03de829ded3e200c3da278936a684955d2f94f"
+ENV PHP_VERSION 8.3.36
+ENV PHP_URL="https://www.php.net/distributions/php-8.3.36.tar.xz" PHP_ASC_URL="https://www.php.net/distributions/php-8.3.36.tar.xz.asc"
+ENV PHP_SHA256="dd54693aa334c5c4d72e9aee96b082c2473750a18a6c1d105789c93a3b1692fd"
 
 RUN set -eux; \
 	\
@@ -147,7 +147,7 @@ RUN set -eux; \
 		curl -fsSL -o php.tar.xz.asc "$PHP_ASC_URL"; \
 		export GNUPGHOME="$(mktemp -d)"; \
 		for key in $GPG_KEYS; do \
-			gpg --batch --keyserver keyserver.ubuntu.com --recv-keys "$key"; \
+			gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$key"; \
 		done; \
 		gpg --batch --verify php.tar.xz.asc php.tar.xz; \
 		gpgconf --kill all; \
