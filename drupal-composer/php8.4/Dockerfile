@@ -1,4 +1,4 @@
-FROM php:8.4.20-cli-alpine
+FROM php:8.4.27-cli-alpine
 
 LABEL maintainer="jason@ciandt.com"
 
