@@ -30,14 +30,21 @@ ENV DEBIAN_FRONTEND=noninteractive \
 	DRUSH_LAUNCHER_FALLBACK=/usr/local/drush/drush
 
 # persistent / runtime deps
+# libbrotli1 is listed explicitly even though curl pulls it in as a dependency:
+# naming it makes apt resolve the bookworm-security candidate. The brotli
+# decoder has an out-of-bounds write (CVE-2026-111497), fixed in Debian's
+# 1.0.9-2+deb12u1; a plain dependency install can leave the older build behind.
 RUN set -eux; \
 	apt-get update; \
 	apt-get install -y --no-install-recommends \
 		$PHPIZE_DEPS \
 		ca-certificates \
 		curl \
+		libbrotli1 \
 		xz-utils \
-		exim4
+		exim4; \
+# fail the build rather than ship an image with the vulnerable decoder
+	dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge 1.0.9-2+deb12u1
 
 # php-fpm serves as `docker` and gpg needs a writable keyring directory;
 # without one gnupg::encrypt() silently returns an empty string.
